@@ -18,8 +18,6 @@ const numGameSaveSections = 14
 const numHallOfFameSections = 2
 const securityValue = 0x8012025
 
-// 00 00 00 00 60 7C 00 00 25 20 01 08 00 00 00 00
-
 // GameSaveSection represents one of the logical sections of the save data structure.
 type GameSaveSection struct {
 	data     []byte
@@ -48,13 +46,22 @@ type SaveData struct {
 
 // LoadSaveFile reads a game save file.
 func LoadSaveFile(filename string) (SaveData, error) {
-	saveData := SaveData{}
 	bytes, err := ioutil.ReadFile(filename)
 	if err != nil {
-		return saveData, err
+		return SaveData{}, err
 	}
 	if len(bytes) != saveFileSize {
-		return saveData, fmt.Errorf("Expected save file size is %d bytes, but %s is %d bytes", saveFileSize, filename, len(bytes))
+		return SaveData{}, fmt.Errorf("Expected save file size is %d bytes, but %s is %d bytes", saveFileSize, filename, len(bytes))
+	}
+
+	return LoadSaveFileFromBytes(bytes)
+}
+
+// LoadSaveFileFromBytes reads a game save file from slice of bytes.
+func LoadSaveFileFromBytes(bytes []byte) (SaveData, error) {
+	var err error
+	saveData := SaveData{
+		activeGameSave: nil,
 	}
 
 	// First, load the two sets of 14 game save sections.
@@ -88,7 +95,7 @@ func LoadSaveFile(filename string) (SaveData, error) {
 	offset = (numGameSaveSections*2 + numHallOfFameSections + 1) * sectionSize
 	saveData.recordedBattle = loadRecordedBattleSection(bytes[offset : offset+sectionSize])
 
-	return saveData, nil
+	return saveData, saveData.CheckCorruption()
 }
 
 func loadGameSaveSection(sectionBytes []byte) (GameSaveSection, error) {
@@ -134,9 +141,6 @@ func loadRecordedBattleSection(sectionBytes []byte) []byte {
 }
 
 func (s *SaveData) getLatestGameSaveSection() *[numGameSaveSections]GameSaveSection {
-	if s.activeGameSave != nil {
-		return s.activeGameSave
-	}
 	counterA := s.gameSaveA[len(s.gameSaveA)-1].counter
 	counterB := s.gameSaveB[len(s.gameSaveB)-1].counter
 	if counterA > counterB {
@@ -462,52 +466,6 @@ func (s *SaveData) SetPlayTime(hours uint16, minutes uint8, seconds uint8, vblan
 	return nil
 }
 
-// GetOptions gets the player's option settings.
-func (s *SaveData) GetOptions() (Options, error) {
-	options := Options{}
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return options, err
-	}
-	options.ButtonMode = ButtonMode(section.data[0x13])
-	options.TextSpeed = TextSpeed(section.data[0x14] & 0x7)
-	options.FrameStyle = section.data[0x14] >> 3
-	options.SoundMode = SoundMode(section.data[0x15] & 0x1)
-	options.BattleStyle = BattleStyle((section.data[0x15] & 0x2) >> 1)
-	options.BattleAnimations = (section.data[0x15] & 0x4) == 0
-	return options, nil
-}
-
-// SetOptions gets the player's option settings.
-func (s *SaveData) SetOptions(options Options) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	if options.ButtonMode > ButtonModeLEqualsA {
-		return fmt.Errorf("Invalid options button mode %d", options.ButtonMode)
-	}
-	if options.TextSpeed > TextSpeedFast {
-		return fmt.Errorf("Invalid options text speed %d", options.TextSpeed)
-	}
-	if options.FrameStyle > 19 {
-		return fmt.Errorf("Invalid options frame style %d. Must be in range 0-19", options.FrameStyle)
-	}
-	if options.SoundMode > SoundModeStereo {
-		return fmt.Errorf("Invalid options sound mode %d. Must be in range 0-1", options.FrameStyle)
-	}
-	if options.BattleStyle > BattleStyleSet {
-		return fmt.Errorf("Invalid options battle style %d. Must be in range 0-1", options.BattleStyle)
-	}
-	section.data[0x13] = byte(options.ButtonMode)
-	section.data[0x14] = (section.data[0x14] &^ 0x7) | byte(options.TextSpeed)
-	section.data[0x14] = (section.data[0x14] &^ 0xF8) | (options.FrameStyle << 3)
-	section.data[0x15] = (section.data[0x15] &^ 0x1) | byte(options.SoundMode)
-	section.data[0x15] = (section.data[0x15] &^ 0x2) | (byte(options.BattleStyle) << 1)
-	section.data[0x15] = (section.data[0x15] &^ 0x4) | (util.BoolToByte(!options.BattleAnimations) << 2)
-	return nil
-}
-
 // GetRegionMapZoomedIn gets whether or not the region map is zoomed in.
 func (s *SaveData) GetRegionMapZoomedIn() (bool, error) {
 	section, err := s.getGameSaveSection(0)
@@ -527,46 +485,65 @@ func (s *SaveData) SetRegionMapZoomedIn(isZoomedIn bool) error {
 	return nil
 }
 
-// GetPokedexSortMode gets the sort mode for the Pokedex.
-func (s *SaveData) GetPokedexSortMode() (DexSort, error) {
+// GetEncryptionKey gets the encryption key used to decrypt various save data.
+func (s *SaveData) GetEncryptionKey() (uint32, error) {
 	section, err := s.getGameSaveSection(0)
 	if err != nil {
-		return DexSortAlphabetic, err
+		return 0, err
 	}
-	return DexSort(section.data[0x18]), nil
+	return binary.LittleEndian.Uint32(section.data[0xAC:0xB0]), nil
 }
 
-// SetPokedexSortMode sets the sort mode for the Pokedex.
-func (s *SaveData) SetPokedexSortMode(sortMode DexSort) error {
-	section, err := s.getGameSaveSection(0)
+// GetMoney gets the player's current money amount.
+func (s *SaveData) GetMoney() (uint32, error) {
+	section, err := s.getGameSaveSection(1)
+	if err != nil {
+		return 0, err
+	}
+	encryptedMoney := binary.LittleEndian.Uint32(section.data[0x490:0x494])
+	key, err := s.GetEncryptionKey()
+	if err != nil {
+		return 0, err
+	}
+	return encryptedMoney ^ key, nil
+}
+
+// SetMoney sets the player's current money amount.
+func (s *SaveData) SetMoney(money uint32) error {
+	section, err := s.getGameSaveSection(1)
 	if err != nil {
 		return err
 	}
-	if sortMode > DexSortHeightAscending {
-		return fmt.Errorf("Invalid Pokedex sort mode %d", sortMode)
+	key, err := s.GetEncryptionKey()
+	if err != nil {
+		return err
 	}
-	section.data[0x18] = byte(sortMode)
+	if money > 999999 {
+		money = 999999
+	}
+	encryptedMoney := money ^ key
+	binary.LittleEndian.PutUint32(section.data[0x490:0x494], encryptedMoney)
 	return nil
 }
 
-// GetPokedexRegionMode gets the region mode for the Pokedex.
-func (s *SaveData) GetPokedexRegionMode() (DexRegion, error) {
-	section, err := s.getGameSaveSection(0)
+// GetPlayerCoordinates gets the player's current x/y coordinates.
+func (s *SaveData) GetPlayerCoordinates() (int16, int16, error) {
+	section, err := s.getGameSaveSection(1)
 	if err != nil {
-		return DexRegionNational, err
+		return 0, 0, err
 	}
-	return DexRegion(section.data[0x19]), nil
+	x := int16(binary.LittleEndian.Uint16(section.data[0x0:0x2]))
+	y := int16(binary.LittleEndian.Uint16(section.data[0x2:0x4]))
+	return x, y, nil
 }
 
-// SetPokedexRegionMode sets the region mode for the Pokedex.
-func (s *SaveData) SetPokedexRegionMode(mode DexRegion) error {
-	section, err := s.getGameSaveSection(0)
+// SetPlayerCoordinates sets the player's current x/y coordinates.
+func (s *SaveData) SetPlayerCoordinates(x, y int16) error {
+	section, err := s.getGameSaveSection(1)
 	if err != nil {
 		return err
 	}
-	if mode > DexRegionNational {
-		return fmt.Errorf("Invalid Pokedex region mode %d", mode)
-	}
-	section.data[0x19] = byte(mode)
+	binary.LittleEndian.PutUint16(section.data[0x0:0x2], uint16(x))
+	binary.LittleEndian.PutUint16(section.data[0x2:0x4], uint16(y))
 	return nil
 }
