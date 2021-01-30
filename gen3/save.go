@@ -179,6 +179,7 @@ func (s *SaveData) FixChecksums() {
 }
 
 func (s *SaveData) Write(w io.Writer) error {
+	s.FixChecksums()
 	var err error
 	tryWrite := func(bytes []byte) {
 		if err != nil {
