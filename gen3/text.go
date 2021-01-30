@@ -1,5 +1,10 @@
 package gen3
 
+import (
+	"fmt"
+	"strings"
+)
+
 const endOfString = 0xFF
 
 var charmap = map[rune]byte{
@@ -180,4 +185,42 @@ var reverseCharmap = map[byte]rune{
 	0xF4: 'ä',
 	0xF5: 'ö',
 	0xF6: 'ü',
+}
+
+func readGameString(data []byte) string {
+	var sb strings.Builder
+	for _, b := range data {
+		if b == endOfString {
+			break
+		}
+		if letter, ok := reverseCharmap[b]; ok {
+			sb.WriteRune(letter)
+		} else {
+			sb.WriteByte(b)
+		}
+	}
+	return sb.String()
+}
+
+func writeGameString(data []byte, s string, maxLength int) error {
+	buffer := make([]byte, maxLength)
+	pos := 0
+	for _, letter := range s {
+		if b, ok := charmap[letter]; ok {
+			if pos >= maxLength {
+				return fmt.Errorf("Cannot set game string to %s because the specified max length was only %d", s, maxLength)
+			}
+			buffer[pos] = b
+			pos++
+		} else {
+			return fmt.Errorf("Cannot set game string to %s because the character '%c' is unsupported", s, letter)
+		}
+	}
+	// Pad with null-terminating characters
+	for pos < maxLength {
+		buffer[pos] = endOfString
+		pos++
+	}
+	copy(data, buffer)
+	return nil
 }

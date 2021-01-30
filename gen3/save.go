@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"strings"
 
 	"github.com/huderlem/gomons/util"
 )
@@ -324,18 +323,7 @@ func (s *SaveData) GetPlayerName() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var sb strings.Builder
-	for _, b := range section.data[0:7] {
-		if b == endOfString {
-			break
-		}
-		if letter, ok := reverseCharmap[b]; ok {
-			sb.WriteRune(letter)
-		} else {
-			sb.WriteByte(b)
-		}
-	}
-	return sb.String(), nil
+	return readGameString(section.data[:7]), nil
 }
 
 // SetPlayerName gets the player's OT name.
@@ -343,27 +331,11 @@ func (s *SaveData) SetPlayerName(name string) error {
 	if len(name) < 1 || len(name) > 7 {
 		return fmt.Errorf("Player name must be between 1 and 7 characters long")
 	}
-	buffer := make([]byte, 7)
-	pos := 0
-	for _, letter := range name {
-		if b, ok := charmap[letter]; ok {
-			buffer[pos] = b
-			pos++
-		} else {
-			return fmt.Errorf("Cannot set player name to %s because the character '%c' is unsupported", name, letter)
-		}
-	}
-	// Pad with null-terminating characters
-	for pos < 7 {
-		buffer[pos] = endOfString
-		pos++
-	}
 	section, err := s.getGameSaveSection(0)
 	if err != nil {
 		return err
 	}
-	copy(section.data[0:7], buffer)
-	return nil
+	return writeGameString(section.data[0:7], name, 7)
 }
 
 // GetPlayerTrainerID gets the player's raw trainer id. The trainer id is composed of two parts--public and secret.
@@ -536,15 +508,4 @@ func (s *SaveData) GetPlayerCoordinates() (int16, int16, error) {
 	x := int16(binary.LittleEndian.Uint16(section.data[0x0:0x2]))
 	y := int16(binary.LittleEndian.Uint16(section.data[0x2:0x4]))
 	return x, y, nil
-}
-
-// SetPlayerCoordinates sets the player's current x/y coordinates.
-func (s *SaveData) SetPlayerCoordinates(x, y int16) error {
-	section, err := s.getGameSaveSection(1)
-	if err != nil {
-		return err
-	}
-	binary.LittleEndian.PutUint16(section.data[0x0:0x2], uint16(x))
-	binary.LittleEndian.PutUint16(section.data[0x2:0x4], uint16(y))
-	return nil
 }
