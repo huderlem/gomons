@@ -4,8 +4,8 @@ import (
 	"fmt"
 )
 
-// GetPartyCount gets the number of pokemon in the player's party.
-func (s *SaveData) GetPartyCount() (int, error) {
+// GetNumPartyMons gets the number of pokemon in the player's party.
+func (s *SaveData) GetNumPartyMons() (int, error) {
 	section, err := s.getGameSaveSection(1)
 	if err != nil {
 		return 0, err
@@ -19,7 +19,7 @@ func (s *SaveData) GetPartyMon(index int) (Pokemon, error) {
 	if err != nil {
 		return Pokemon{}, err
 	}
-	count, err := s.GetPartyCount()
+	count, err := s.GetNumPartyMons()
 	if err != nil {
 		return Pokemon{}, err
 	}
@@ -39,6 +39,59 @@ func (s *SaveData) SetPartyMon(mon Pokemon, index int) error {
 	if err != nil {
 		return err
 	}
+	count, err := s.GetNumPartyMons()
+	if err != nil {
+		return err
+	}
+	if index >= count {
+		return fmt.Errorf("Invalid party index '%d' because there are only %d Pokemon in the player's party", index, count)
+	}
 	offset := 0x238 + (index * 100)
 	return writePokemonData(section.data[offset:offset+100], mon)
+}
+
+// AddPartyMon add the given pokemon to the end of the player's party.
+func (s *SaveData) AddPartyMon(mon Pokemon) error {
+	section, err := s.getGameSaveSection(1)
+	if err != nil {
+		return err
+	}
+	count, err := s.GetNumPartyMons()
+	if err != nil {
+		return err
+	}
+	if count == 6 {
+		return fmt.Errorf("Cannot add a Pokemon to the player's party because it is already full")
+	}
+	offset := 0x238 + (count * 100)
+	section.data[0x234] = uint8(count + 1)
+	return writePokemonData(section.data[offset:offset+100], mon)
+}
+
+// RemovePartyMon removes the pokemon at the given index in the player's party, and
+// then shifts any following pokemon up in the party.
+func (s *SaveData) RemovePartyMon(index int) error {
+	section, err := s.getGameSaveSection(1)
+	if err != nil {
+		return err
+	}
+	count, err := s.GetNumPartyMons()
+	if err != nil {
+		return err
+	}
+	if index >= count {
+		return nil
+	}
+	for index < count-1 {
+		offset := 0x238 + (index * 100)
+		nextMon, err := readPokemonData(section.data[offset+100 : offset+200])
+		if err != nil {
+			return err
+		}
+		writePokemonData(section.data[offset:offset+100], nextMon)
+		index++
+	}
+	offset := 0x238 + (index * 100)
+	section.data[0x234] = uint8(count - 1)
+	return writePokemonData(section.data[offset:offset+100], Pokemon{})
 }

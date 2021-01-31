@@ -499,6 +499,38 @@ func (s *SaveData) SetMoney(money uint32) error {
 	return nil
 }
 
+// GetCoins gets the player's current coins amount.
+func (s *SaveData) GetCoins() (uint16, error) {
+	section, err := s.getGameSaveSection(1)
+	if err != nil {
+		return 0, err
+	}
+	encryptedCoins := binary.LittleEndian.Uint16(section.data[0x494:0x496])
+	key, err := s.GetEncryptionKey()
+	if err != nil {
+		return 0, err
+	}
+	return encryptedCoins ^ uint16(key), nil
+}
+
+// SetCoins sets the player's current coins amount.
+func (s *SaveData) SetCoins(coins uint16) error {
+	section, err := s.getGameSaveSection(1)
+	if err != nil {
+		return err
+	}
+	key, err := s.GetEncryptionKey()
+	if err != nil {
+		return err
+	}
+	if coins > 9999 {
+		coins = 9999
+	}
+	encryptedCoins := coins ^ uint16(key)
+	binary.LittleEndian.PutUint16(section.data[0x494:0x496], encryptedCoins)
+	return nil
+}
+
 // GetPlayerCoordinates gets the player's current x/y coordinates.
 func (s *SaveData) GetPlayerCoordinates() (int16, int16, error) {
 	section, err := s.getGameSaveSection(1)
