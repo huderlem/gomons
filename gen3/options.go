@@ -2,8 +2,6 @@ package gen3
 
 import (
 	"fmt"
-
-	"github.com/huderlem/gomons/util"
 )
 
 // ButtonMode is the configuration for what buttons can be used like the A button.
@@ -53,12 +51,12 @@ func getTextSpeedString(speed TextSpeed) string {
 }
 
 // SoundMode is the configuration for how sound is played on the system.
-type SoundMode byte
+type SoundMode bool
 
 // SoundMode values
 const (
-	SoundModeMono   SoundMode = 0
-	SoundModeStereo SoundMode = 1
+	SoundModeMono   SoundMode = false
+	SoundModeStereo SoundMode = true
 )
 
 func getSoundModeString(mode SoundMode) string {
@@ -73,12 +71,12 @@ func getSoundModeString(mode SoundMode) string {
 }
 
 // BattleStyle is the configuration for the battle style.
-type BattleStyle byte
+type BattleStyle bool
 
 // BattleStyle values
 const (
-	BattleStyleShift BattleStyle = 0
-	BattleStyleSet   BattleStyle = 1
+	BattleStyleShift BattleStyle = false
+	BattleStyleSet   BattleStyle = true
 )
 
 func getBattleStyleString(mode BattleStyle) string {
@@ -115,27 +113,19 @@ func (o Options) String() string {
 }
 
 // GetOptions gets the player's option settings.
-func (s *SaveData) GetOptions() (Options, error) {
+func (s *SaveData) GetOptions() Options {
 	options := Options{}
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return options, err
-	}
-	options.ButtonMode = ButtonMode(section.data[0x13])
-	options.TextSpeed = TextSpeed(section.data[0x14] & 0x7)
-	options.FrameStyle = section.data[0x14] >> 3
-	options.SoundMode = SoundMode(section.data[0x15] & 0x1)
-	options.BattleStyle = BattleStyle((section.data[0x15] & 0x2) >> 1)
-	options.BattleAnimations = (section.data[0x15] & 0x4) == 0
-	return options, nil
+	options.ButtonMode = ButtonMode(s.readU8(0x13))
+	options.TextSpeed = TextSpeed(s.readBitsU8(0x14, 0, 3))
+	options.FrameStyle = s.readBitsU8(0x14, 3, 5)
+	options.SoundMode = SoundMode(s.readBit(0x15, 0))
+	options.BattleStyle = BattleStyle(s.readBit(0x15, 1))
+	options.BattleAnimations = !s.readBit(0x15, 2)
+	return options
 }
 
 // SetOptions gets the player's option settings.
 func (s *SaveData) SetOptions(options Options) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
 	if options.ButtonMode > ButtonModeLEqualsA {
 		return fmt.Errorf("Invalid options button mode %d", options.ButtonMode)
 	}
@@ -145,17 +135,11 @@ func (s *SaveData) SetOptions(options Options) error {
 	if options.FrameStyle > 19 {
 		return fmt.Errorf("Invalid options frame style %d. Must be in range 0-19", options.FrameStyle)
 	}
-	if options.SoundMode > SoundModeStereo {
-		return fmt.Errorf("Invalid options sound mode %d. Must be in range 0-1", options.FrameStyle)
-	}
-	if options.BattleStyle > BattleStyleSet {
-		return fmt.Errorf("Invalid options battle style %d. Must be in range 0-1", options.BattleStyle)
-	}
-	section.data[0x13] = byte(options.ButtonMode)
-	section.data[0x14] = (section.data[0x14] &^ 0x7) | byte(options.TextSpeed)
-	section.data[0x14] = (section.data[0x14] &^ 0xF8) | (options.FrameStyle << 3)
-	section.data[0x15] = (section.data[0x15] &^ 0x1) | byte(options.SoundMode)
-	section.data[0x15] = (section.data[0x15] &^ 0x2) | (byte(options.BattleStyle) << 1)
-	section.data[0x15] = (section.data[0x15] &^ 0x4) | (util.BoolToByte(!options.BattleAnimations) << 2)
+	s.writeU8(byte(options.ButtonMode), 0x13)
+	s.writeBitsU8(byte(options.TextSpeed), 0x14, 0, 3)
+	s.writeBitsU8(options.FrameStyle, 0x14, 3, 5)
+	s.writeBit(bool(options.SoundMode), 0x15, 0)
+	s.writeBit(bool(options.BattleStyle), 0x15, 1)
+	s.writeBit(!options.BattleAnimations, 0x15, 2)
 	return nil
 }

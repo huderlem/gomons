@@ -202,13 +202,13 @@ func readGameString(data []byte) string {
 	return sb.String()
 }
 
-func writeGameString(data []byte, s string, maxLength int) error {
-	buffer := make([]byte, maxLength)
+func writeGameString(outBuffer []byte, s string) error {
+	buffer := make([]byte, len(outBuffer))
 	pos := 0
 	for _, letter := range s {
 		if b, ok := charmap[letter]; ok {
-			if pos >= maxLength {
-				return fmt.Errorf("Cannot set game string to %s because the specified max length was only %d", s, maxLength)
+			if pos >= len(outBuffer) {
+				return fmt.Errorf("Cannot set game string to %s because the specified max length was only %d", s, len(outBuffer))
 			}
 			buffer[pos] = b
 			pos++
@@ -217,10 +217,10 @@ func writeGameString(data []byte, s string, maxLength int) error {
 		}
 	}
 	// Pad with null-terminating characters
-	for pos < maxLength {
+	for pos < len(outBuffer) {
 		buffer[pos] = endOfString
 		pos++
 	}
-	copy(data, buffer)
+	copy(outBuffer, buffer)
 	return nil
 }

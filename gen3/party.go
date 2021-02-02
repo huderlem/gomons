@@ -5,93 +5,84 @@ import (
 )
 
 // GetNumPartyMons gets the number of pokemon in the player's party.
-func (s *SaveData) GetNumPartyMons() (int, error) {
-	section, err := s.getGameSaveSection(1)
-	if err != nil {
-		return 0, err
-	}
-	return int(section.data[0x234]), nil
+func (s *SaveData) GetNumPartyMons() int {
+	return int(s.readU32(0x11B4))
 }
 
 // GetPartyMon gets the pokemon at the given index in the player's party.
 func (s *SaveData) GetPartyMon(index int) (Pokemon, error) {
-	section, err := s.getGameSaveSection(1)
-	if err != nil {
-		return Pokemon{}, err
-	}
-	count, err := s.GetNumPartyMons()
-	if err != nil {
-		return Pokemon{}, err
-	}
+	count := s.GetNumPartyMons()
 	if index < 0 {
 		return Pokemon{}, fmt.Errorf("Party index must be a positive integer. Got %d instead", index)
 	}
 	if index >= count {
 		return Pokemon{}, fmt.Errorf("Invalid party index '%d' because there are only %d Pokemon in the player's party", index, count)
 	}
-	offset := 0x238 + (index * 100)
-	return readPokemonData(section.data[offset : offset+100])
+	offset := 0x11B8 + uint(index)*100
+	buffer := make([]uint8, 100)
+	s.readU8Slice(buffer, offset)
+	return readPokemonData(buffer)
 }
 
 // SetPartyMon sets the pokemon at the given index in the player's party.
 func (s *SaveData) SetPartyMon(mon Pokemon, index int) error {
-	section, err := s.getGameSaveSection(1)
-	if err != nil {
-		return err
-	}
-	count, err := s.GetNumPartyMons()
-	if err != nil {
-		return err
-	}
+	count := s.GetNumPartyMons()
 	if index >= count {
 		return fmt.Errorf("Invalid party index '%d' because there are only %d Pokemon in the player's party", index, count)
 	}
-	offset := 0x238 + (index * 100)
-	return writePokemonData(section.data[offset:offset+100], mon)
+	buffer := make([]uint8, 100)
+	if err := writePokemonData(buffer, mon); err != nil {
+		return err
+	}
+	offset := 0x11B8 + uint(index)*100
+	s.writeU8Slice(buffer, offset)
+	return nil
 }
 
 // AddPartyMon add the given pokemon to the end of the player's party.
 func (s *SaveData) AddPartyMon(mon Pokemon) error {
-	section, err := s.getGameSaveSection(1)
-	if err != nil {
-		return err
-	}
-	count, err := s.GetNumPartyMons()
-	if err != nil {
-		return err
-	}
-	if count == 6 {
+	count := s.GetNumPartyMons()
+	if count >= 6 {
 		return fmt.Errorf("Cannot add a Pokemon to the player's party because it is already full")
 	}
-	offset := 0x238 + (count * 100)
-	section.data[0x234] = uint8(count + 1)
-	return writePokemonData(section.data[offset:offset+100], mon)
+	buffer := make([]uint8, 100)
+	if err := writePokemonData(buffer, mon); err != nil {
+		return err
+	}
+	offset := 0x11B8 + uint(count)*100
+	s.writeU8Slice(buffer, offset)
+	s.writeU8(uint8(count+1), 0x11B4)
+	return nil
 }
 
 // RemovePartyMon removes the pokemon at the given index in the player's party, and
 // then shifts any following pokemon up in the party.
 func (s *SaveData) RemovePartyMon(index int) error {
-	section, err := s.getGameSaveSection(1)
-	if err != nil {
-		return err
-	}
-	count, err := s.GetNumPartyMons()
-	if err != nil {
-		return err
-	}
+	count := s.GetNumPartyMons()
 	if index >= count {
 		return nil
 	}
 	for index < count-1 {
-		offset := 0x238 + (index * 100)
-		nextMon, err := readPokemonData(section.data[offset+100 : offset+200])
+		offset := 0x11B8 + uint(index)*100
+		nextMonBuffer := make([]uint8, 100)
+		s.readU8Slice(nextMonBuffer, offset+100)
+		nextMon, err := readPokemonData(nextMonBuffer)
 		if err != nil {
 			return err
 		}
-		writePokemonData(section.data[offset:offset+100], nextMon)
+		buffer := make([]uint8, 100)
+		if err := writePokemonData(buffer, nextMon); err != nil {
+			return err
+		}
+		s.writeU8Slice(buffer, offset)
 		index++
 	}
-	offset := 0x238 + (index * 100)
-	section.data[0x234] = uint8(count - 1)
-	return writePokemonData(section.data[offset:offset+100], Pokemon{})
+	buffer := make([]uint8, 100)
+	if err := writePokemonData(buffer, Pokemon{}); err != nil {
+		return err
+	}
+	offset := 0x11B8 + uint(index)*100
+	s.writeU8Slice(buffer, offset)
+	s.writeU8(uint8(count-1), 0x11B4)
+	return nil
 }

@@ -192,14 +192,14 @@ func readPokemonData(data []byte) (Pokemon, error) {
 func writePokemonData(data []byte, mon Pokemon) error {
 	binary.LittleEndian.PutUint32(data[0x0:0x4], mon.Box.Personality)
 	binary.LittleEndian.PutUint32(data[0x4:0x8], mon.Box.OtID)
-	if err := writeGameString(data[0x8:0x12], mon.Box.Nickname, 10); err != nil {
+	if err := writeGameString(data[0x8:0x12], mon.Box.Nickname); err != nil {
 		return err
 	}
 	data[0x12] = byte(mon.Box.Language)
 	data[0x13] = util.WriteBit(data[0x13], 0, mon.Box.IsBadEgg)
 	data[0x13] = util.WriteBit(data[0x13], 1, mon.Box.HasSpecies)
 	data[0x13] = util.WriteBit(data[0x13], 2, mon.Box.IsEgg)
-	if err := writeGameString(data[0x14:0x1B], mon.Box.OtName, 7); err != nil {
+	if err := writeGameString(data[0x14:0x1B], mon.Box.OtName); err != nil {
 		return err
 	}
 	data[0x1B] = mon.Box.Markings

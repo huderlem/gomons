@@ -1,10 +1,7 @@
 package gen3
 
 import (
-	"encoding/binary"
 	"fmt"
-
-	"github.com/huderlem/gomons/util"
 )
 
 // DexSort is how the pokedex entries are ordered.
@@ -60,186 +57,108 @@ func (mode DexRegion) String() string {
 }
 
 // GetPokedexSortMode gets the sort mode for the Pokedex.
-func (s *SaveData) GetPokedexSortMode() (DexSort, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return DexSortAlphabetic, err
-	}
-	return DexSort(section.data[0x18]), nil
+func (s *SaveData) GetPokedexSortMode() DexSort {
+	return DexSort(s.readU8(0x18))
 }
 
 // SetPokedexSortMode sets the sort mode for the Pokedex.
-func (s *SaveData) SetPokedexSortMode(sortMode DexSort) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	if sortMode > DexSortHeightAscending {
-		return fmt.Errorf("Invalid Pokedex sort mode %d", sortMode)
-	}
-	section.data[0x18] = byte(sortMode)
-	return nil
+func (s *SaveData) SetPokedexSortMode(sortMode DexSort) {
+	s.writeU8(uint8(sortMode), 0x18)
 }
 
 // GetPokedexRegionMode gets the region mode for the Pokedex.
-func (s *SaveData) GetPokedexRegionMode() (DexRegion, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return DexRegionNational, err
-	}
-	return DexRegion(section.data[0x19]), nil
+func (s *SaveData) GetPokedexRegionMode() DexRegion {
+	return DexRegion(s.readU8(0x19))
 }
 
 // SetPokedexRegionMode sets the region mode for the Pokedex.
-func (s *SaveData) SetPokedexRegionMode(mode DexRegion) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	if mode > DexRegionNational {
-		return fmt.Errorf("Invalid Pokedex region mode %d", mode)
-	}
-	section.data[0x19] = byte(mode)
+func (s *SaveData) SetPokedexRegionMode(mode DexRegion) {
+	s.writeU8(uint8(mode), 0x19)
 	if mode == DexRegionNational {
-		section.data[0x1A] = 0xDA
+		s.writeU8(0xDA, 0x1A)
 	}
-	return nil
 }
 
 // GetPokedexUnownPersonality gets the personality value used when viewing Unown in the pokedex.
-func (s *SaveData) GetPokedexUnownPersonality() (uint32, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return 0, err
-	}
-	return binary.LittleEndian.Uint32(section.data[0x1C:0x20]), nil
+func (s *SaveData) GetPokedexUnownPersonality() uint32 {
+	return s.readU32(0x1C)
 }
 
 // SetPokedexUnownPersonality sets the personality value used when viewing Unown in the pokedex.
-func (s *SaveData) SetPokedexUnownPersonality(personality uint32) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	binary.LittleEndian.PutUint32(section.data[0x1C:0x20], personality)
-	return nil
+func (s *SaveData) SetPokedexUnownPersonality(personality uint32) {
+	s.writeU32(personality, 0x1C)
 }
 
 // GetPokedexSpindaPersonality gets the personality value used when viewing Spinda in the pokedex.
-func (s *SaveData) GetPokedexSpindaPersonality() (uint32, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return 0, err
-	}
-	return binary.LittleEndian.Uint32(section.data[0x20:0x24]), nil
+func (s *SaveData) GetPokedexSpindaPersonality() uint32 {
+	return s.readU32(0x20)
 }
 
 // SetPokedexSpindaPersonality sets the personality value used when viewing Spinda in the pokedex.
-func (s *SaveData) SetPokedexSpindaPersonality(personality uint32) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	binary.LittleEndian.PutUint32(section.data[0x20:0x24], personality)
-	return nil
+func (s *SaveData) SetPokedexSpindaPersonality(personality uint32) {
+	s.writeU32(personality, 0x20)
 }
 
 // GetNumOwnedSpecies gets the total number of owned pokemon in the national Pokedex.
-func (s *SaveData) GetNumOwnedSpecies() (int, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return 0, err
-	}
+func (s *SaveData) GetNumOwnedSpecies() int {
 	count := 0
 	for _, nationalDexIndex := range NationalDexOrder {
 		nationalDexIndex--
-		if util.CheckBitSetInArray(section.data[0x28:], nationalDexIndex) {
+		if s.readBit(0x28, uint(nationalDexIndex)) {
 			count++
 		}
 	}
-	return count, nil
+	return count
 }
 
 // GetNumSeenSpecies gets the total number of seen pokemon in the national Pokedex.
-func (s *SaveData) GetNumSeenSpecies() (int, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return 0, err
-	}
+func (s *SaveData) GetNumSeenSpecies() int {
 	count := 0
 	for _, nationalDexIndex := range NationalDexOrder {
 		nationalDexIndex--
-		if util.CheckBitSetInArray(section.data[0x5C:], nationalDexIndex) {
+		if s.readBit(0x5C, uint(nationalDexIndex)) {
 			count++
 		}
 	}
-	return count, nil
+	return count
 }
 
 // GetOwnedSpecies gets whether or not the given species is owned in the Pokedex.
 func (s *SaveData) GetOwnedSpecies(species int) (bool, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return false, err
-	}
 	nationalDexIndex, ok := NationalDexOrder[species]
 	if !ok {
 		return false, fmt.Errorf("Invalid species '%d'. It isn't part of the national Pokedex", species)
 	}
 	nationalDexIndex--
-	isOwned := util.CheckBitSetInArray(section.data[0x28:], nationalDexIndex)
+	isOwned := s.readBit(0x28, uint(nationalDexIndex))
 	return isOwned, nil
 }
 
 // SetOwnedSpecies sets whether or not the given species is owned in the Pokedex.
 func (s *SaveData) SetOwnedSpecies(species int, isOwned bool) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
 	nationalDexIndex, ok := NationalDexOrder[species]
 	if !ok {
 		return fmt.Errorf("Invalid species '%d'. It isn't part of the national Pokedex", species)
 	}
 	nationalDexIndex--
-	if isOwned {
-		util.SetBitInArray(section.data[0x28:], nationalDexIndex)
-	} else {
-		util.ClearBitInArray(section.data[0x28:], nationalDexIndex)
-	}
+	s.writeBit(isOwned, 0x28, uint(nationalDexIndex))
 	return nil
 }
 
 // GetSeenSpecies gets whether or not the given species is seen in the Pokedex.
 func (s *SaveData) GetSeenSpecies(species int) (bool, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return false, err
-	}
 	nationalDexIndex, ok := NationalDexOrder[species]
 	if !ok {
 		return false, fmt.Errorf("Invalid species '%d'. It isn't part of the national Pokedex", species)
 	}
 	nationalDexIndex--
-	isSeen := util.CheckBitSetInArray(section.data[0x5C:], nationalDexIndex)
+	isSeen := s.readBit(0x5C, uint(nationalDexIndex))
 	return isSeen, nil
 }
 
 // SetSeenSpecies sets whether or not the given species is seen in the Pokedex.
 // If parameter isSeen is false, then also mark the species as not owned.
 func (s *SaveData) SetSeenSpecies(species int, isSeen bool) error {
-	section0, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	section1, err := s.getGameSaveSection(1)
-	if err != nil {
-		return err
-	}
-	section4, err := s.getGameSaveSection(4)
-	if err != nil {
-		return err
-	}
 	nationalDexIndex, ok := NationalDexOrder[species]
 	if !ok {
 		return fmt.Errorf("Invalid species '%d'. It isn't part of the national Pokedex", species)
@@ -248,16 +167,16 @@ func (s *SaveData) SetSeenSpecies(species int, isSeen bool) error {
 	// The "seen" data is duplicated three times in the save file, presumably
 	// for anti-cheat reasons.
 	if isSeen {
-		util.SetBitInArray(section0.data[0x5C:], nationalDexIndex)
-		util.SetBitInArray(section1.data[0x988:], nationalDexIndex)
-		util.SetBitInArray(section4.data[0xCA4:], nationalDexIndex)
+		s.writeBit(true, 0x5C, uint(nationalDexIndex))
+		s.writeBit(true, 0x1908, uint(nationalDexIndex))
+		s.writeBit(true, 0x3B24, uint(nationalDexIndex))
 	} else {
 		if err := s.SetOwnedSpecies(species, false); err != nil {
 			return err
 		}
-		util.ClearBitInArray(section0.data[0x5C:], nationalDexIndex)
-		util.ClearBitInArray(section1.data[0x988:], nationalDexIndex)
-		util.ClearBitInArray(section4.data[0xCA4:], nationalDexIndex)
+		s.writeBit(false, 0x5C, uint(nationalDexIndex))
+		s.writeBit(false, 0x1908, uint(nationalDexIndex))
+		s.writeBit(false, 0x3B24, uint(nationalDexIndex))
 	}
 	return nil
 }

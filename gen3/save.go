@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-
-	"github.com/huderlem/gomons/util"
 )
 
 const gameSectionDataSize = 0xF80
@@ -281,263 +279,167 @@ func (s *HallOfFameSection) checkCorruption(id int) error {
 	return nil
 }
 
-func (s *SaveData) getGameSaveSection(id int) (*GameSaveSection, error) {
-	if id < 0 || id >= numGameSaveSections {
-		return nil, fmt.Errorf("Invalid game save section id %d", id)
-	}
+func (s *SaveData) getGameSaveSection(id uint) *GameSaveSection {
 	gameSaveSection := s.getLatestGameSaveSection()
 	for i := 0; i < numGameSaveSections; i++ {
 		if gameSaveSection[i].id == uint16(id) {
-			return &gameSaveSection[i], nil
+			return &gameSaveSection[i]
 		}
 	}
-	return nil, fmt.Errorf("Missing game save section id %d", id)
-}
-
-// GetPlayerGender gets the player's gender.
-func (s *SaveData) GetPlayerGender() (PlayerGender, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return Invalid, err
-	}
-	gender := PlayerGender(section.data[8])
-	if gender != Male && gender != Female {
-		return Invalid, fmt.Errorf("Save data has invalid player gender %#x", gender)
-	}
-	return gender, nil
-}
-
-// SetPlayerGender sets the player's gender.
-func (s *SaveData) SetPlayerGender(gender PlayerGender) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	section.data[8] = byte(gender)
 	return nil
 }
 
-// GetPlayerName gets the player's OT name.
-func (s *SaveData) GetPlayerName() (string, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return "", err
-	}
-	return readGameString(section.data[:7]), nil
+func (s *SaveData) readU8(address uint) uint8 {
+	sectionID := address / gameSectionDataSize
+	section := s.getGameSaveSection(sectionID)
+	offset := address % gameSectionDataSize
+	return section.data[offset]
 }
 
-// SetPlayerName gets the player's OT name.
-func (s *SaveData) SetPlayerName(name string) error {
-	if len(name) < 1 || len(name) > 7 {
-		return fmt.Errorf("Player name must be between 1 and 7 characters long")
-	}
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	return writeGameString(section.data[0:7], name, 7)
+func (s *SaveData) readS8(address uint) int8 {
+	return int8(s.readU8(address))
 }
 
-// GetPlayerTrainerID gets the player's raw trainer id. The trainer id is composed of two parts--public and secret.
-// The public id is viewable in-game, while the secret id is not. The trainer id is always used by the game
-// engine as its full 4-byte value.
-func (s *SaveData) GetPlayerTrainerID() (uint32, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return 0, err
-	}
-	return binary.LittleEndian.Uint32(section.data[0xA:0xE]), nil
+func (s *SaveData) readU16(address uint) uint16 {
+	lo := s.readU8(address)
+	hi := s.readU8(address + 1)
+	return (uint16(hi) << 8) | uint16(lo)
 }
 
-// GetPlayerPublicID gets the player's public trainer id part. This is the id viewable in-game.
-func (s *SaveData) GetPlayerPublicID() (uint16, error) {
-	otid, err := s.GetPlayerTrainerID()
-	if err != nil {
-		return 0, err
-	}
-	return uint16(otid), nil
+func (s *SaveData) readS16(address uint) int16 {
+	return int16(s.readU16(address))
 }
 
-// GetPlayerSecretID gets the player's secret trainer id part. This id is not viewable in-game, but is
-// still a part of the player's trainer identity. It is used, for example, when determining a mon's shininess.
-func (s *SaveData) GetPlayerSecretID() (uint16, error) {
-	otid, err := s.GetPlayerTrainerID()
-	if err != nil {
-		return 0, err
-	}
-	return uint16(otid >> 16), nil
+func (s *SaveData) readU32(address uint) uint32 {
+	lo := s.readU16(address)
+	hi := s.readU16(address + 2)
+	return (uint32(hi) << 16) | uint32(lo)
 }
 
-// SetPlayerTrainerID sets the player's raw trainer id. The trainer id is composed of two parts--public and secret.
-// The public id is viewable in-game, while the secret id is not. The trainer id is always used by the game
-// engine as its full 4-byte value.
-func (s *SaveData) SetPlayerTrainerID(id uint32) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	binary.LittleEndian.PutUint32(section.data[0xA:0xE], id)
-	return nil
+func (s *SaveData) readS32(address uint) int32 {
+	return int32(s.readU32(address))
 }
 
-// SetPlayerPublicID sets the player's public trainer id part. This is the id viewable in-game.
-func (s *SaveData) SetPlayerPublicID(id uint16) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	binary.LittleEndian.PutUint16(section.data[0xA:0xC], id)
-	return nil
+func (s *SaveData) writeU8(value uint8, address uint) {
+	sectionID := address / gameSectionDataSize
+	section := s.getGameSaveSection(sectionID)
+	offset := address % gameSectionDataSize
+	section.data[offset] = value
 }
 
-// SetPlayerSecretID gets the player's secret trainer id part. This id is not viewable in-game, but is
-// still a part of the player's trainer identity. It is used, for example, when determining a mon's shininess.
-func (s *SaveData) SetPlayerSecretID(id uint16) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	binary.LittleEndian.PutUint16(section.data[0xC:0xE], id)
-	return nil
+func (s *SaveData) writeS8(value int8, address uint) {
+	s.writeU8(uint8(value), address)
 }
 
-// GetPlayTime gets the play time hours, seconds, minutes, and vblanks. One VBlank is roughly 1/60 of a second.
-func (s *SaveData) GetPlayTime() (uint16, uint8, uint8, uint8, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return 0, 0, 0, 0, err
-	}
-	hours := binary.LittleEndian.Uint16(section.data[0xE:0x10])
-	minutes := section.data[0x10]
-	seconds := section.data[0x11]
-	vblanks := section.data[0x12]
-	return hours, minutes, seconds, vblanks, nil
+func (s *SaveData) writeU16(value uint16, address uint) {
+	lo := uint8(value & 0xFF)
+	hi := uint8(value >> 8)
+	s.writeU8(lo, address)
+	s.writeU8(hi, address+1)
 }
 
-// SetPlayTime gets the play time hours, seconds, minutes, and vblanks. One VBlank is roughly 1/60 of a second.
-func (s *SaveData) SetPlayTime(hours uint16, minutes uint8, seconds uint8, vblanks uint8) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	if hours > 999 {
-		return fmt.Errorf("Hours must be in range 0-999, but got %d", minutes)
-	}
-	if minutes > 59 {
-		return fmt.Errorf("Minutes must be in range 0-59, but got %d", minutes)
-	}
-	if seconds > 59 {
-		return fmt.Errorf("Seconds must be in range 0-59, but got %d", seconds)
-	}
-	if vblanks > 59 {
-		return fmt.Errorf("VBlanks must be in range 0-59, but got %d", vblanks)
-	}
-	binary.LittleEndian.PutUint16(section.data[0xE:0x10], hours)
-	section.data[0x10] = minutes
-	section.data[0x11] = seconds
-	section.data[0x12] = vblanks
-	return nil
+func (s *SaveData) writeS16(value int16, address uint) {
+	s.writeU16(uint16(value), address)
 }
 
-// GetRegionMapZoomedIn gets whether or not the region map is zoomed in.
-func (s *SaveData) GetRegionMapZoomedIn() (bool, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return false, err
-	}
-	return (section.data[0x15] & 0x8) != 0, nil
+func (s *SaveData) writeU32(value uint32, address uint) {
+	lo := uint16(value & 0xFFFF)
+	hi := uint16(value >> 16)
+	s.writeU16(lo, address)
+	s.writeU16(hi, address+2)
 }
 
-// SetRegionMapZoomedIn sets whether or not the region map is zoomed in.
-func (s *SaveData) SetRegionMapZoomedIn(isZoomedIn bool) error {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return err
-	}
-	section.data[0x15] = (section.data[0x15] &^ 0x8) | (util.BoolToByte(isZoomedIn) << 3)
-	return nil
+func (s *SaveData) writeS32(value int32, address uint) {
+	s.writeU32(uint32(value), address)
 }
 
-// GetEncryptionKey gets the encryption key used to decrypt various save data.
-func (s *SaveData) GetEncryptionKey() (uint32, error) {
-	section, err := s.getGameSaveSection(0)
-	if err != nil {
-		return 0, err
+func (s *SaveData) readU8Slice(outBuffer []uint8, address uint) {
+	for i := 0; i < len(outBuffer); i++ {
+		v := s.readU8(address + uint(i))
+		outBuffer[i] = v
 	}
-	return binary.LittleEndian.Uint32(section.data[0xAC:0xB0]), nil
 }
 
-// GetMoney gets the player's current money amount.
-func (s *SaveData) GetMoney() (uint32, error) {
-	section, err := s.getGameSaveSection(1)
-	if err != nil {
-		return 0, err
+func (s *SaveData) readU16Slice(outBuffer []uint16, address uint) {
+	for i := 0; i < len(outBuffer); i++ {
+		outBuffer[i] = s.readU16(address + 2*uint(i))
 	}
-	encryptedMoney := binary.LittleEndian.Uint32(section.data[0x490:0x494])
-	key, err := s.GetEncryptionKey()
-	if err != nil {
-		return 0, err
-	}
-	return encryptedMoney ^ key, nil
 }
 
-// SetMoney sets the player's current money amount.
-func (s *SaveData) SetMoney(money uint32) error {
-	section, err := s.getGameSaveSection(1)
-	if err != nil {
-		return err
+func (s *SaveData) readU32Slice(outBuffer []uint32, address uint) {
+	for i := 0; i < len(outBuffer); i++ {
+		outBuffer[i] = s.readU32(address + 4*uint(i))
 	}
-	key, err := s.GetEncryptionKey()
-	if err != nil {
-		return err
-	}
-	if money > 999999 {
-		money = 999999
-	}
-	encryptedMoney := money ^ key
-	binary.LittleEndian.PutUint32(section.data[0x490:0x494], encryptedMoney)
-	return nil
 }
 
-// GetCoins gets the player's current coins amount.
-func (s *SaveData) GetCoins() (uint16, error) {
-	section, err := s.getGameSaveSection(1)
-	if err != nil {
-		return 0, err
+func (s *SaveData) writeU8Slice(buffer []uint8, address uint) {
+	for i := 0; i < len(buffer); i++ {
+		s.writeU8(buffer[i], address+uint(i))
 	}
-	encryptedCoins := binary.LittleEndian.Uint16(section.data[0x494:0x496])
-	key, err := s.GetEncryptionKey()
-	if err != nil {
-		return 0, err
-	}
-	return encryptedCoins ^ uint16(key), nil
 }
 
-// SetCoins sets the player's current coins amount.
-func (s *SaveData) SetCoins(coins uint16) error {
-	section, err := s.getGameSaveSection(1)
-	if err != nil {
-		return err
+func (s *SaveData) writeU16Slice(buffer []uint16, address uint) {
+	for i := 0; i < len(buffer); i++ {
+		s.writeU16(buffer[i], address+2*uint(i))
 	}
-	key, err := s.GetEncryptionKey()
-	if err != nil {
-		return err
-	}
-	if coins > 9999 {
-		coins = 9999
-	}
-	encryptedCoins := coins ^ uint16(key)
-	binary.LittleEndian.PutUint16(section.data[0x494:0x496], encryptedCoins)
-	return nil
 }
 
-// GetPlayerCoordinates gets the player's current x/y coordinates.
-func (s *SaveData) GetPlayerCoordinates() (int16, int16, error) {
-	section, err := s.getGameSaveSection(1)
-	if err != nil {
-		return 0, 0, err
+func (s *SaveData) writeU32Slice(buffer []uint32, address uint) {
+	for i := 0; i < len(buffer); i++ {
+		s.writeU32(buffer[i], address+4*uint(i))
 	}
-	x := int16(binary.LittleEndian.Uint16(section.data[0x0:0x2]))
-	y := int16(binary.LittleEndian.Uint16(section.data[0x2:0x4]))
-	return x, y, nil
+}
+
+func (s *SaveData) readBit(address uint, bit uint) bool {
+	v := s.readU8(address + bit/8)
+	mask := uint8(1 << (bit % 8))
+	return (v & mask) != 0
+}
+
+func (s *SaveData) readBitsU8(address uint, bit, width uint) uint8 {
+	return uint8(s.readBitsU32(address, bit, width))
+}
+
+func (s *SaveData) readBitsU16(address uint, bit, width uint) uint16 {
+	return uint16(s.readBitsU32(address, bit, width))
+}
+
+func (s *SaveData) readBitsU32(address uint, bit, width uint) uint32 {
+	var value uint32
+	for i := 0; uint(i) < width; i++ {
+		if s.readBit(address+bit/8, bit%8) {
+			value |= (1 << i)
+		}
+		bit++
+	}
+	return value
+}
+
+func (s *SaveData) writeBit(set bool, address uint, bit uint) {
+	v := s.readU8(address + bit/8)
+	var mask uint8 = 1 << (bit % 8)
+	if set {
+		v |= mask
+	} else {
+		v &^= mask
+	}
+	s.writeU8(v, address+bit/8)
+}
+
+func (s *SaveData) writeBitsU8(value uint8, address uint, bit, width uint) {
+	s.writeBitsU32(uint32(value), address, bit, width)
+}
+
+func (s *SaveData) writeBitsU16(value uint16, address uint, bit, width uint) {
+	s.writeBitsU32(uint32(value), address, bit, width)
+}
+
+func (s *SaveData) writeBitsU32(value uint32, address uint, bit, width uint) {
+	for width > 0 {
+		set := (value & 1) != 0
+		s.writeBit(set, address+bit/8, bit%8)
+		value >>= 1
+		width--
+		bit++
+	}
 }
