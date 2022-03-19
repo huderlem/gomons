@@ -22,6 +22,7 @@ type GameSaveSection struct {
 	checksum uint16
 	security uint32
 	counter  uint32
+	empty    bool
 }
 
 // HallOfFameSection represents one of the logical hall of fame sections of the save data structure.
@@ -29,6 +30,7 @@ type HallOfFameSection struct {
 	data     []byte
 	checksum uint16
 	security uint32
+	empty    bool
 }
 
 // SaveData is full representation of the save data.
@@ -95,6 +97,15 @@ func LoadSaveFileFromBytes(bytes []byte) (SaveData, error) {
 	return saveData, saveData.CheckCorruption()
 }
 
+func isSectionEmpty(sectionBytes []byte) bool {
+	for _, b := range sectionBytes[:gameSectionDataSize] {
+		if b != 0xFF {
+			return false
+		}
+	}
+	return true
+}
+
 func loadGameSaveSection(sectionBytes []byte) (GameSaveSection, error) {
 	section := GameSaveSection{
 		data: make([]byte, sectionRawDataSize),
@@ -110,6 +121,7 @@ func loadGameSaveSection(sectionBytes []byte) (GameSaveSection, error) {
 	section.checksum = binary.LittleEndian.Uint16(sectionBytes[sectionRawDataSize+2 : sectionRawDataSize+4])
 	section.security = binary.LittleEndian.Uint32(sectionBytes[sectionRawDataSize+4 : sectionRawDataSize+8])
 	section.counter = binary.LittleEndian.Uint32(sectionBytes[sectionRawDataSize+8 : sectionRawDataSize+12])
+	section.empty = isSectionEmpty(sectionBytes)
 	return section, nil
 }
 
@@ -126,6 +138,7 @@ func loadHallOfFameSection(sectionBytes []byte) (HallOfFameSection, error) {
 	}
 	section.checksum = binary.LittleEndian.Uint16(sectionBytes[sectionRawDataSize : sectionRawDataSize+2])
 	section.security = binary.LittleEndian.Uint32(sectionBytes[sectionRawDataSize+4 : sectionRawDataSize+8])
+	section.empty = isSectionEmpty(sectionBytes)
 	return section, nil
 }
 
@@ -139,7 +152,13 @@ func loadRecordedBattleSection(sectionBytes []byte) []byte {
 
 func (s *SaveData) getLatestGameSaveSection() *[numGameSaveSections]GameSaveSection {
 	counterA := s.gameSaveA[len(s.gameSaveA)-1].counter
+	if s.gameSaveA[len(s.gameSaveA)-1].empty {
+		counterA = 0
+	}
 	counterB := s.gameSaveB[len(s.gameSaveB)-1].counter
+	if s.gameSaveB[len(s.gameSaveB)-1].empty {
+		counterB = 0
+	}
 	if counterA > counterB {
 		s.activeGameSave = &s.gameSaveA
 	} else {
@@ -171,7 +190,10 @@ func (s *SaveData) FixChecksums() {
 		gameSaveSections[i].checksum = gameSaveSections[i].calculateChecksum()
 	}
 	for i := 0; i < numHallOfFameSections; i++ {
-		s.hallOfFame[i].checksum = s.hallOfFame[i].calculateChecksum()
+		s.hallOfFame[i].empty = isSectionEmpty(s.hallOfFame[i].data)
+		if !s.hallOfFame[i].empty {
+			s.hallOfFame[i].checksum = s.hallOfFame[i].calculateChecksum()
+		}
 	}
 }
 
@@ -219,18 +241,22 @@ func (s *SaveData) Write(w io.Writer) error {
 	}
 	for i := 0; i < len(s.hallOfFame); i++ {
 		section := s.hallOfFame[i]
+		unusedVal := 0
+		if section.empty {
+			unusedVal = 0xFFFFFFFF
+		}
 		tryWrite(section.data)
 		checksumBytes := make([]byte, 2)
 		binary.LittleEndian.PutUint16(checksumBytes, section.checksum)
 		tryWrite(checksumBytes)
 		unusedBytes := make([]byte, 2)
-		binary.LittleEndian.PutUint16(unusedBytes, 0)
+		binary.LittleEndian.PutUint16(unusedBytes, uint16(unusedVal))
 		tryWrite(unusedBytes)
 		securityBytes := make([]byte, 4)
 		binary.LittleEndian.PutUint32(securityBytes, section.security)
 		tryWrite(securityBytes)
 		unusedBytes = make([]byte, 4)
-		binary.LittleEndian.PutUint32(unusedBytes, 0)
+		binary.LittleEndian.PutUint32(unusedBytes, uint32(unusedVal))
 		tryWrite(unusedBytes)
 	}
 	tryWrite(s.trainerHill)
@@ -269,6 +295,9 @@ func (s *GameSaveSection) checkCorruption() error {
 }
 
 func (s *HallOfFameSection) checkCorruption(id int) error {
+	if s.empty {
+		return nil
+	}
 	checksum := s.calculateChecksum()
 	if checksum != s.checksum {
 		return fmt.Errorf("Hall of Fame save section %d has incorrect checksum %#x. Expected %#x", id, s.checksum, checksum)
